@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14 # Apple Silicon M1/M2 runner with Xcode 15+
+    runs-on: macos-latest
 
     steps:
       - name: Checkout Repository
@@ -17,18 +17,20 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode Version
+      - name: Verify Xcode Environment
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
           xcodebuild -version
 
       - name: Install Build Dependencies
         run: |
           brew install cmake ninja
 
-      - name: Run C++ Engine Unit Tests
+      - name: Make Scripts Executable
         run: |
           chmod +x Scripts/*.sh
+
+      - name: Run C++ Engine Unit Tests
+        run: |
           ./Scripts/run_benchmarks.sh
 
       - name: Build llama.cpp Static Framework
@@ -37,7 +39,6 @@ jobs:
 
       - name: Build SmolMax iOS App (.app)
         run: |
-          # Build using xcodebuild without code signing (for external signing service)
           xcodebuild clean build \
             -project SmolMax-iOS.xcodeproj \
             -scheme SmolMax-iOS \

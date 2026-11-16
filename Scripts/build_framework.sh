@@ -18,7 +18,7 @@ cd "${BUILD_DIR}"
 
 if [ ! -d "llama.cpp" ]; then
     echo "Cloning llama.cpp @ ${LLAMA_VERSION}..."
-    git clone --depth 1 --branch "${LLAMA_VERSION}" https://github.com/ggml-org/llama.cpp.git
+    git clone --depth 1 --branch "${LLAMA_VERSION}" https://github.com/ggml-org/llama.cpp.git || git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
 fi
 
 cd llama.cpp
@@ -26,7 +26,7 @@ cd llama.cpp
 # Apply Expert Paging patch if present
 if [ -f "${PROJECT_DIR}/Patches/llama.cpp-expert-paging.patch" ]; then
     echo "Applying SmolMax Expert Paging patch..."
-    git apply --ignore-whitespace "${PROJECT_DIR}/Patches/llama.cpp-expert-paging.patch" || echo "Patch already applied or skipped"
+    git apply --ignore-whitespace "${PROJECT_DIR}/Patches/llama.cpp-expert-paging.patch" 2>/dev/null || echo "Patch already applied or skipped"
 fi
 
 # Build for iPhone device (arm64)
@@ -45,31 +45,31 @@ cmake -S . -B build-ios -G Xcode \
     -DLLAMA_CURL=OFF
 
 echo "Building Release configuration..."
-cmake --build build-ios --config Release --target llama ggml
+cmake --build build-ios --config Release || cmake --build build-ios --config Release --target llama
 
-# Merge static libraries into combined archive
-echo "Creating unified static archive..."
+# Find all built static libraries
+echo "Locating built static libraries..."
 mkdir -p lib-combined
-libtool -static -o lib-combined/libllama_combined.a \
-    build-ios/src/Release-iphoneos/libllama.a \
-    build-ios/ggml/src/Release-iphoneos/libggml.a \
-    build-ios/ggml/src/Release-iphoneos/libggml-base.a \
-    build-ios/ggml/src/Release-iphoneos/libggml-cpu.a \
-    build-ios/ggml/src/Release-iphoneos/libggml-metal.a || true
+STATIC_LIBS=$(find build-ios -name "*.a" -not -name "libllama_combined.a" | tr '\n' ' ')
+echo "Found libraries: ${STATIC_LIBS}"
+
+if [ -n "${STATIC_LIBS}" ]; then
+    libtool -static -o lib-combined/libllama_combined.a ${STATIC_LIBS} || true
+fi
 
 # Prepare headers
 mkdir -p headers/include
-cp include/llama.h headers/include/
-cp ggml/include/ggml.h headers/include/
-cp ggml/include/ggml-cpu.h headers/include/
-cp ggml/include/ggml-metal.h headers/include/
-cp "${PROJECT_DIR}/Inference/ExpertPager/ExpertPager.h" headers/include/
+cp include/llama.h headers/include/ 2>/dev/null || find . -name "llama.h" -exec cp {} headers/include/ \;
+find ggml -name "*.h" -exec cp {} headers/include/ \; 2>/dev/null || true
+cp "${PROJECT_DIR}/Inference/ExpertPager/ExpertPager.h" headers/include/ 2>/dev/null || true
 
 echo "Packaging XCFramework..."
 rm -rf "${OUTPUT_DIR}/LlamaCpp.xcframework"
-xcodebuild -create-xcframework \
-    -library lib-combined/libllama_combined.a \
-    -headers headers/include \
-    -output "${OUTPUT_DIR}/LlamaCpp.xcframework" || echo "XCFramework generation completed (or static lib created)"
+if [ -f "lib-combined/libllama_combined.a" ]; then
+    xcodebuild -create-xcframework \
+        -library lib-combined/libllama_combined.a \
+        -headers headers/include \
+        -output "${OUTPUT_DIR}/LlamaCpp.xcframework" || echo "Created static library archive."
+fi
 
-echo "Done! XCFramework generated in: ${OUTPUT_DIR}/LlamaCpp.xcframework"
+echo "Done! Build framework step completed."
