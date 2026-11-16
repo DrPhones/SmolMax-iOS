@@ -1,0 +1,28 @@
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -1,6 +1,8 @@
+ // Patched by SmolMax iOS: Expert Paging for Mixture-of-Experts (MoE) on iOS
++#include "ExpertPager.h"
++
+ static smolmax::ExpertPager * g_smolmax_pager = nullptr;
++
++void smolmax_set_expert_pager(void * pager) {
++    g_smolmax_pager = reinterpret_cast<smolmax::ExpertPager*>(pager);
++}
+ 
+ // In model weight loading: avoid mapping massive MoE expert tables into single contiguous RAM
+ // If ExpertPager is active, non-expert weights remain mapped, expert tensors register offsets
+@@ -12450,6 +12458,24 @@ static struct ggml_cgraph * llama_build_graph(
+             // Intercept MoE Routing and FFN evaluation
+             if (layer.ffn_gate_inp != nullptr && g_smolmax_pager != nullptr) {
+                 // Register expert locations if not already recorded
++                int32_t num_experts = model.hparams.n_expert;
++                int32_t top_k = model.hparams.n_expert_used;
++                for (int32_t exp = 0; exp < num_experts; ++exp) {
++                    if (layer.ffn_up_exps[exp] != nullptr) {
++                        uint64_t tensor_offset = layer.ffn_up_exps[exp]->data_offset;
++                        size_t tensor_size = ggml_nbytes(layer.ffn_up_exps[exp]);
++                        g_smolmax_pager->register_expert_location(il, exp, tensor_offset, tensor_size);
++                    }
++                }
+             }

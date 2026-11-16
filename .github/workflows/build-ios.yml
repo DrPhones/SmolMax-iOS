@@ -1,0 +1,68 @@
+name: Build SmolMax iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon M1/M2 runner with Xcode 15+
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Build Dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Run C++ Engine Unit Tests
+        run: |
+          chmod +x Scripts/*.sh
+          ./Scripts/run_benchmarks.sh
+
+      - name: Build llama.cpp Static Framework
+        run: |
+          ./Scripts/build_framework.sh
+
+      - name: Build SmolMax iOS App (.app)
+        run: |
+          # Build using xcodebuild without code signing (for external signing service)
+          xcodebuild clean build \
+            -project SmolMax-iOS.xcodeproj \
+            -scheme SmolMax-iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CONFIGURATION_BUILD_DIR="${GITHUB_WORKSPACE}/build/Build/Products/Release-iphoneos"
+
+      - name: Package Unsigned IPA
+        run: |
+          ./Scripts/package_ipa.sh "${GITHUB_WORKSPACE}/build/Build/Products/Release-iphoneos/SmolMax-iOS.app"
+
+      - name: Verify IPA Structure & Bundle
+        run: |
+          unzip -l SmolMax-iOS.ipa | grep "Payload/SmolMax-iOS.app/Info.plist"
+          echo "IPA bundle structure verified successfully!"
+
+      - name: Upload SmolMax-iOS.ipa Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmolMax-iOS-Unsigned-IPA
+          path: SmolMax-iOS.ipa
+          retention-days: 30
+          if-no-files-found: error
